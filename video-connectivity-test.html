@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>视频生成连通性测试页</title>
+  <style>
+    :root {
+      --bg-a: #f8f2e8;
+      --bg-b: #eedcc5;
+      --panel: rgba(255, 250, 242, 0.9);
+      --panel-strong: #fffaf2;
+      --text: #2b241d;
+      --muted: #6e6257;
+      --line: rgba(77, 57, 41, 0.12);
+      --accent: #bf5a2d;
+      --accent-deep: #8d3817;
+      --good: #246a45;
+      --bad: #a13b2f;
+      --shadow: 0 20px 60px rgba(95, 58, 28, 0.12);
+      --radius: 24px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(240, 171, 102, 0.24), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(196, 111, 61, 0.18), transparent 28%),
+        linear-gradient(135deg, var(--bg-a) 0%, #f1e4d3 45%, var(--bg-b) 100%);
+      padding: 28px 16px 36px;
+    }
+
+    .page {
+      max-width: 1220px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.56);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      overflow: hidden;
+    }
+
+    .hero {
+      padding: 28px;
+      background:
+        linear-gradient(135deg, rgba(255, 247, 236, 0.98), rgba(255, 239, 220, 0.86)),
+        linear-gradient(135deg, #fdf4e7, #f7e4cc);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent-deep);
+      background: rgba(191, 90, 45, 0.1);
+      border: 1px solid rgba(191, 90, 45, 0.16);
+    }
+
+    .tag::before {
+      content: "🎬";
+      font-size: 14px;
+    }
+
+    h1 {
+      margin: 18px 0 10px;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 0.98;
+      letter-spacing: -0.045em;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+      max-width: 760px;
+    }
+
+    .body {
+      padding: 26px 28px 30px;
+    }
+
+    .meter {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .meter-box {
+      padding: 18px 18px 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(94, 68, 45, 0.08);
+      background: linear-gradient(135deg, rgba(255, 253, 249, 0.98), rgba(250, 241, 228, 0.9));
+    }
+
+    .meter-label {
+      margin: 0 0 8px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .meter-time {
+      margin: 0;
+      font-size: clamp(30px, 4vw, 46px);
+      font-weight: 800;
+      letter-spacing: -0.05em;
+    }
+
+    .meter-note {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .result-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 14px;
+      border-radius: 14px;
+      font-size: 14px;
+      font-weight: 700;
+      background: rgba(191, 90, 45, 0.08);
+      color: var(--accent-deep);
+    }
+
+    .result-chip.good {
+      color: var(--good);
+      background: rgba(36, 106, 69, 0.1);
+    }
+
+    .result-chip.bad {
+      color: var(--bad);
+      background: rgba(161, 59, 47, 0.1);
+    }
+
+    .result-chip.pending {
+      color: var(--accent);
+      background: rgba(191, 90, 45, 0.06);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      font-size: 14px;
+      font-weight: 700;
+      color: #4b382d;
+    }
+
+    input,
+    textarea,
+    select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 16px;
+      font: inherit;
+      color: var(--text);
+      background: rgba(255, 253, 249, 0.96);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: rgba(191, 90, 45, 0.5);
+      box-shadow: 0 0 0 4px rgba(191, 90, 45, 0.12);
+      transform: translateY(-1px);
+    }
+
+    textarea {
+      min-height: 118px;
+      resize: vertical;
+      line-height: 1.6;
+    }
+
+    .inline-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 14px 22px;
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.7;
+      transform: none;
+    }
+
+    .primary {
+      color: #fff9f2;
+      background: linear-gradient(135deg, #cb673a, #a4411c);
+      box-shadow: 0 16px 30px rgba(164, 65, 28, 0.24);
+    }
+
+    .secondary {
+      color: var(--accent-deep);
+      background: rgba(191, 90, 45, 0.1);
+      border: 1px solid rgba(191, 90, 45, 0.16);
+    }
+
+    .status {
+      margin-top: 16px;
+      min-height: 56px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(255, 249, 239, 0.95);
+      border: 1px solid rgba(191, 90, 45, 0.12);
+      color: #5b4030;
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .side {
+      padding: 24px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .side h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .side p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    pre {
+      margin: 0;
+      padding: 16px;
+      border-radius: 18px;
+      background: #2a2019;
+      color: #f8ede2;
+      font-size: 13px;
+      line-height: 1.6;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .video-card {
+      padding: 10px;
+      border-radius: 18px;
+      background: var(--panel-strong);
+      border: 1px solid rgba(77, 57, 41, 0.08);
+    }
+
+    .video-card video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: contain;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #2a2019, #1a1410);
+    }
+
+    .video-card a {
+      display: inline-block;
+      margin-top: 10px;
+      color: var(--accent-deep);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .connectivity {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .connect-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-radius: 14px;
+      background: rgba(255, 253, 249, 0.95);
+      border: 1px solid rgba(77, 57, 41, 0.08);
+    }
+
+    .connect-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .connect-status {
+      font-size: 13px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 999px;
+    }
+
+    .connect-status.ok {
+      color: var(--good);
+      background: rgba(36, 106, 69, 0.1);
+    }
+
+    .connect-status.fail {
+      color: var(--bad);
+      background: rgba(161, 59, 47, 0.1);
+    }
+
+    .connect-status.waiting {
+      color: var(--accent);
+      background: rgba(191, 90, 45, 0.06);
+    }
+
+    @media (max-width: 960px) {
+      .page {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        padding: 16px 12px 24px;
+      }
+
+      .hero,
+      .body,
+      .side {
+        padding: 18px;
+      }
+
+      .grid,
+      .meter {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <div class="hero">
+        <div class="tag">文生视频接口连通性测试页</div>
+        <h1>从点击开始，<br>精确记录到视频返回</h1>
+        <p class="subtitle">
+          这个页面直接请求你的 <strong>API Gateway</strong> 中转地址。
+          你可以在下方配置 Gateway 地址、API Key 和模型参数，页面会在你点击"开始生成"的瞬间启动计时，
+          并在成功拿到视频或请求失败时停止。同时支持连通性快速检测。
+        </p>
+      </div>
+
+      <div class="body">
+        <!-- 连通性检测 -->
+        <div class="card" style="margin-bottom: 20px; border: none; box-shadow: none; background: transparent;">
+          <div class="connectivity" id="connectivitySection">
+            <div class="connect-row">
+              <span class="connect-label">Gateway 连通性</span>
+              <span class="connect-status waiting" id="gwStatus">待检测</span>
+            </div>
+            <div class="connect-row">
+              <span class="connect-label">CORS 策略</span>
+              <span class="connect-status waiting" id="corsStatus">待检测</span>
+            </div>
+          </div>
+          <div style="margin-top: 14px; display: flex; gap: 10px;">
+            <button class="secondary" id="testConnectBtn" type="button" onclick="testConnectivity()">检测连通性</button>
+          </div>
+        </div>
+
+        <div class="meter">
+          <div class="meter-box">
+            <p class="meter-label">实时耗时</p>
+            <p class="meter-time" id="liveTimer">0.000 s</p>
+            <p class="meter-note">点击开始生成后，每 100ms 刷新一次，直到拿到返回结果。</p>
+          </div>
+          <div class="meter-box">
+            <p class="meter-label">本次结果</p>
+            <div class="result-chip" id="resultChip">等待请求</div>
+            <p class="meter-note" id="finalTimeNote">完成后会在这里显示最终耗时。</p>
+          </div>
+        </div>
+
+        <form id="videoForm">
+          <div class="grid">
+            <div class="field full">
+              <label for="endpoint">API Gateway 请求地址</label>
+              <input id="endpoint" type="url" value="" placeholder="https://your-gateway.example.com/v1/videos/generations" required>
+              <div class="inline-note">填写你的 API Gateway 中转地址，例如 <code>https://router.yourcompany.cn/v1/videos/generations</code></div>
+            </div>
+
+            <div class="field full">
+              <label for="apiKey">API Key</label>
+              <input id="apiKey" type="password" value="" autocomplete="off" placeholder="sk-xxxxxxxxxxxxxxxx">
+            </div>
+
+            <div class="field">
+              <label for="model">模型名</label>
+              <input id="model" type="text" placeholder="例如：agnes-video-v2 或 wanx2.1-t2v-turbo" required>
+            </div>
+
+            <div class="field">
+              <label for="duration">视频时长（秒）</label>
+              <select id="duration">
+                <option value="2">2 秒</option>
+                <option value="4">4 秒</option>
+                <option value="5" selected>5 秒</option>
+                <option value="10">10 秒</option>
+                <option value="15">15 秒</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="width">宽度（px）</label>
+              <select id="width">
+                <option value="720">720</option>
+                <option value="1024" selected>1024</option>
+                <option value="1280">1280</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="height">高度（px）</label>
+              <select id="height">
+                <option value="480">480</option>
+                <option value="576" selected>576</option>
+                <option value="768">768</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="fps">帧率（fps）</label>
+              <select id="fps">
+                <option value="12">12</option>
+                <option value="16">16</option>
+                <option value="24" selected>24</option>
+                <option value="30">30</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="count">生成数量</label>
+              <input id="count" type="number" value="1" min="1" max="4">
+            </div>
+
+            <div class="field full">
+              <label for="prompt">提示词（Prompt）</label>
+              <textarea id="prompt" placeholder="例如：一只金色的猫咪在清晨的阳光中打滚，毛发蓬松柔软，背景是温馨的客厅，电影感光影，4K画质" required></textarea>
+            </div>
+
+            <div class="field full">
+              <label for="negativePrompt">反向提示词（可选）</label>
+              <textarea id="negativePrompt" placeholder="例如：模糊、低分辨率、变形、水印、文字" style="min-height: 70px;"></textarea>
+            </div>
+
+            <div class="field full">
+              <label for="extraJson">附加参数 JSON</label>
+              <textarea id="extraJson" placeholder='例如：{"seed": 42, "guidance_scale": 7.5}' style="min-height: 70px;"></textarea>
+              <div class="inline-note">这里会直接合并进请求体，键名相同会覆盖默认值。</div>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="primary" id="submitBtn" type="submit">🎬 开始生成视频</button>
+            <button class="secondary" id="fillDemoBtn" type="button">填入示例</button>
+            <button class="secondary" id="copyCurlBtn" type="button">复制 cURL</button>
+          </div>
+        </form>
+
+        <div class="status" id="statusBox">等待请求。请先填写 API Gateway 地址并点击"检测连通性"确认连接正常。</div>
+      </div>
+    </section>
+
+    <aside class="card">
+      <div class="side">
+        <h2>请求预览</h2>
+        <p>页面会带上 <code>Authorization: Bearer &lt;key&gt;</code>，并直接发送 JSON 请求体。</p>
+        <pre id="requestPreview">请填写参数后查看...</pre>
+
+        <h2>原始返回</h2>
+        <p>接口返回的完整 JSON 数据将在此处展示。</p>
+        <pre id="responsePreview">暂无返回。</pre>
+
+        <h2>结果视频</h2>
+        <div class="gallery" id="gallery">
+          <div style="color: var(--muted); font-size: 13px; padding: 20px; text-align: center; grid-column: 1 / -1;">等待视频生成...</div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    // ========== DOM References ==========
+    const form = document.getElementById("videoForm");
+    const submitBtn = document.getElementById("submitBtn");
+    const fillDemoBtn = document.getElementById("fillDemoBtn");
+    const copyCurlBtn = document.getElementById("copyCurlBtn");
+    const testConnectBtn = document.getElementById("testConnectBtn");
+    const statusBox = document.getElementById("statusBox");
+    const requestPreview = document.getElementById("requestPreview");
+    const responsePreview = document.getElementById("responsePreview");
+    const gallery = document.getElementById("gallery");
+    const liveTimer = document.getElementById("liveTimer");
+    const resultChip = document.getElementById("resultChip");
+    const finalTimeNote = document.getElementById("finalTimeNote");
+    const gwStatus = document.getElementById("gwStatus");
+    const corsStatus = document.getElementById("corsStatus");
+
+    // ========== Timer ==========
+    let timerId = null;
+    let requestStartedAt = 0;
+
+    function formatDuration(ms) {
+      return `${(ms / 1000).toFixed(3)} s`;
+    }
+
+    function setStatus(message) {
+      statusBox.innerHTML = message;
+    }
+
+    function setResultChip(text, state) {
+      resultChip.textContent = text;
+      resultChip.className = "result-chip";
+      if (state) {
+        resultChip.classList.add(state);
+      }
+    }
+
+    function startTimer() {
+      stopTimer(false);
+      requestStartedAt = performance.now();
+      liveTimer.textContent = "0.000 s";
+      finalTimeNote.textContent = "正在计时...";
+      setResultChip("请求进行中", "pending");
+      timerId = window.setInterval(() => {
+        const elapsed = performance.now() - requestStartedAt;
+        liveTimer.textContent = formatDuration(elapsed);
+      }, 100);
+    }
+
+    function stopTimer(markFinished = true) {
+      if (timerId !== null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+
+      if (markFinished && requestStartedAt) {
+        const elapsed = performance.now() - requestStartedAt;
+        liveTimer.textContent = formatDuration(elapsed);
+        finalTimeNote.textContent = `本次请求总耗时：${formatDuration(elapsed)}`;
+        return elapsed;
+      }
+
+      return 0;
+    }
+
+    // ========== Helpers ==========
+    function safeParseJson(text) {
+      if (!text.trim()) {
+        return {};
+      }
+      return JSON.parse(text);
+    }
+
+    function getEndpoint() {
+      const endpoint = document.getElementById("endpoint").value.trim();
+      if (!endpoint) {
+        throw new Error("请先填写 API Gateway 请求地址。");
+      }
+      return endpoint;
+    }
+
+    function buildPayload() {
+      const endpoint = getEndpoint();
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const model = document.getElementById("model").value.trim();
+      const prompt = document.getElementById("prompt").value.trim();
+      const negativePrompt = document.getElementById("negativePrompt").value.trim();
+      const duration = Number(document.getElementById("duration").value);
+      const width = Number(document.getElementById("width").value);
+      const height = Number(document.getElementById("height").value);
+      const fps = Number(document.getElementById("fps").value);
+      const count = Number(document.getElementById("count").value || 1);
+      const extraJson = safeParseJson(document.getElementById("extraJson").value);
+
+      if (!apiKey) {
+        throw new Error("请先填写 API Key。");
+      }
+      if (!model) {
+        throw new Error("请先填写模型名。");
+      }
+      if (!prompt) {
+        throw new Error("请先填写提示词。");
+      }
+
+      const payload = {
+        model,
+        prompt,
+        duration,
+        width,
+        height,
+        fps,
+        n: count,
+        ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
+        ...extraJson
+      };
+
+      return { endpoint, apiKey, payload };
+    }
+
+    function renderRequestPreview(endpoint, payload, apiKey) {
+      requestPreview.textContent = JSON.stringify({
+        url: endpoint,
+        method: "POST",
+        mode: "cors",
+        credentials: "omit",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey ? apiKey.slice(0, 10) + "..." : ""}`
+        },
+        body: payload
+      }, null, 2);
+    }
+
+    function renderGallery(items) {
+      gallery.innerHTML = "";
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return;
+      }
+
+      items.forEach((item, index) => {
+        const src = item.url || item.video_url || (item.b64_video ? `data:video/mp4;base64,${item.b64_video}` : "");
+        if (!src) {
+          return;
+        }
+
+        const card = document.createElement("div");
+        card.className = "video-card";
+
+        const video = document.createElement("video");
+        video.src = src;
+        video.controls = true;
+        video.preload = "metadata";
+        video.muted = false;
+        video.alt = item.prompt || `生成视频 ${index + 1}`;
+
+        const link = document.createElement("a");
+        link.href = src;
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "下载原视频";
+
+        card.appendChild(video);
+        card.appendChild(link);
+        gallery.appendChild(card);
+      });
+    }
+
+    // ========== Connectivity Test ==========
+    async function testConnectivity() {
+      let endpoint;
+      try {
+        endpoint = getEndpoint();
+      } catch (error) {
+        setStatus(error.message);
+        return;
+      }
+
+      gwStatus.textContent = "检测中...";
+      gwStatus.className = "connect-status waiting";
+      corsStatus.textContent = "检测中...";
+      corsStatus.className = "connect-status waiting";
+      setStatus("正在检测 API Gateway 连通性...");
+
+      try {
+        // 1. 尝试 HEAD 请求检测基本连通性
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+        const response = await fetch(endpoint, {
+          method: "HEAD",
+          mode: "cors",
+          credentials: "omit",
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok || response.status === 0) {
+          // status 0 可能是 CORS 预检，也算可达
+          gwStatus.textContent = "✅ 可达";
+          gwStatus.className = "connect-status ok";
+          corsStatus.textContent = "✅ 支持";
+          corsStatus.className = "connect-status ok";
+          setStatus("连通性检测通过：API Gateway 可达，CORS 策略允许跨域请求。");
+        } else {
+          gwStatus.textContent = `⚠️ ${response.status}`;
+          gwStatus.className = "connect-status fail";
+          corsStatus.textContent = "需进一步验证";
+          corsStatus.className = "connect-status waiting";
+          setStatus(`Gateway 返回 HTTP ${response.status}。地址可达但可能需要进一步排查。`);
+        }
+      } catch (error) {
+        const errorName = error instanceof Error ? error.name : "UnknownError";
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        if (errorName === "AbortError") {
+          gwStatus.textContent = "❌ 超时";
+          gwStatus.className = "connect-status fail";
+          corsStatus.textContent = "❌ 不可达";
+          corsStatus.className = "connect-status fail";
+          setStatus(`连通性检测失败：请求超时（8秒）。请检查 Gateway 地址是否正确，或网络是否有问题。<br><small>${errorMessage}</small>`);
+        } else if (error instanceof TypeError && /fetch/i.test(errorMessage)) {
+          // CORS 拦截 - 网络可达但 CORS 策略可能有问题
+          gwStatus.textContent = "✅ 网络可达";
+          gwStatus.className = "connect-status ok";
+          corsStatus.textContent = "⚠️ CORS 拦截";
+          corsStatus.className = "connect-status fail";
+          setStatus(`网络可达，但 CORS 策略可能导致浏览器无法读取响应。这可能是正常的——实际 POST 请求可能仍能工作。<br><small>${errorMessage}</small>`);
+        } else {
+          gwStatus.textContent = "❌ 失败";
+          gwStatus.className = "connect-status fail";
+          corsStatus.textContent = "❌ 未知";
+          corsStatus.className = "connect-status fail";
+          setStatus(`连通性检测失败：${errorMessage}`);
+        }
+      }
+    }
+
+    // ========== Copy cURL ==========
+    async function copyCurl() {
+      try {
+        const { endpoint, apiKey, payload } = buildPayload();
+        const curl = [
+          `curl -X POST '${endpoint}'`,
+          `-H 'Authorization: Bearer ${apiKey}'`,
+          "-H 'Content-Type: application/json'",
+          `-d '${JSON.stringify(payload, null, 2)}'`
+        ].join(" \\\n");
+
+        await navigator.clipboard.writeText(curl);
+        setStatus("cURL 命令已复制到剪贴板。");
+      } catch (error) {
+        setStatus(error.message);
+      }
+    }
+
+    // ========== Form Submit ==========
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      gallery.innerHTML = "";
+
+      let endpoint, apiKey, payload;
+
+      try {
+        ({ endpoint, apiKey, payload } = buildPayload());
+      } catch (error) {
+        setStatus(error.message);
+        setResultChip("参数待完善", "bad");
+        return;
+      }
+
+      renderRequestPreview(endpoint, payload, apiKey);
+      responsePreview.textContent = "请求中...";
+      setStatus("请求已发出，正在等待视频生成结果...");
+      submitBtn.disabled = true;
+      startTimer();
+
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          mode: "cors",
+          credentials: "omit",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const rawText = await response.text();
+        let data;
+
+        try {
+          data = JSON.parse(rawText);
+        } catch {
+          data = { raw: rawText };
+        }
+
+        responsePreview.textContent = JSON.stringify(data, null, 2);
+        const elapsed = stopTimer(true);
+
+        if (!response.ok) {
+          const message = data.error?.message || data.message || `服务端返回 ${response.status}`;
+          setResultChip(`请求失败 · HTTP ${response.status}`, "bad");
+          throw new Error(`HTTP ${response.status}: ${message}。耗时 ${formatDuration(elapsed)}`);
+        }
+
+        // 尝试渲染视频结果
+        renderGallery(data.data || []);
+        setResultChip("请求成功", "good");
+        setStatus(`请求成功！已返回 ${Array.isArray(data.data) ? data.data.length : 0} 个视频结果。总耗时 ${formatDuration(elapsed)}。`);
+      } catch (error) {
+        const elapsed = stopTimer(true);
+        const errorName = error instanceof Error ? error.name : "UnknownError";
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const isNetworkError = error instanceof TypeError && /fetch/i.test(error.message);
+
+        if (isNetworkError) {
+          setResultChip("网络错误", "bad");
+          setStatus(`浏览器未拿到有效响应。当前耗时 ${formatDuration(elapsed)}。<br>捕获到的错误是 ${errorName}: ${errorMessage}<br><br>如果后端已经成功处理请求，这通常说明响应在浏览器侧被拦截了，最常见是成功响应缺少可供浏览器读取的 CORS 头，或者 <code>file://</code> 页面来源被目标站拒绝。<br><br><strong>建议：</strong>检查 Gateway 的成功响应是否包含正确的 <code>Access-Control-Allow-Origin</code> 头。`);
+          responsePreview.textContent = JSON.stringify({
+            error_name: errorName,
+            error_message: errorMessage,
+            page_origin: window.location.origin,
+            page_protocol: window.location.protocol,
+            hint: "如果服务端确认已成功生成视频，但这里仍是 Failed to fetch，优先检查成功响应的 Access-Control-Allow-Origin 是否存在。file:// 页面发起请求时，浏览器通常会带 Origin: null。"
+          }, null, 2);
+        } else {
+          if (!errorMessage.includes("耗时")) {
+            setStatus(`${errorMessage}。总耗时 ${formatDuration(elapsed)}。`);
+          } else {
+            setStatus(errorMessage);
+          }
+        }
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+
+    // ========== Demo Fill ==========
+    fillDemoBtn.addEventListener("click", () => {
+      document.getElementById("prompt").value = "一只金色的猫咪在清晨的阳光中打滚，毛发蓬松柔软，背景是温馨的客厅，电影感光影，4K画质";
+      document.getElementById("negativePrompt").value = "模糊、低分辨率、变形、水印、文字";
+      document.getElementById("extraJson").value = JSON.stringify({
+        seed: 42,
+        guidance_scale: 7.5
+      }, null, 2);
+      try {
+        const { endpoint, apiKey, payload } = buildPayload();
+        renderRequestPreview(endpoint, payload, apiKey);
+        setStatus("示例内容已填入，可以直接开始生成。");
+      } catch (error) {
+        setStatus(error.message);
+      }
+    });
+
+    copyCurlBtn.addEventListener("click", copyCurl);
+
+    // ========== Initial Preview ==========
+    (function initPreview() {
+      try {
+        const ep = document.getElementById("endpoint").value.trim() || "https://your-gateway.example.com/v1/videos/generations";
+        renderRequestPreview(ep, {
+          model: "",
+          prompt: "",
+          duration: 5,
+          width: 1024,
+          height: 576,
+          fps: 24,
+          n: 1
+        }, "");
+      } catch (e) {
+        // ignore
+      }
+    })();
+  </script>
+</body>
+</html>
