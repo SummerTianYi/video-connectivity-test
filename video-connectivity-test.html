@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>视频生成连通性测试页</title>
+  <title>文生视频生成测试台</title>
   <style>
     :root {
       --bg-a: #f8f2e8;
@@ -276,6 +276,31 @@
       line-height: 1.65;
     }
 
+    .run-log {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(255, 249, 239, 0.72);
+      border: 1px solid rgba(191, 90, 45, 0.12);
+    }
+
+    .log-row {
+      display: grid;
+      grid-template-columns: 84px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+      color: #5b4030;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .log-time {
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+
     .side {
       padding: 24px;
       display: grid;
@@ -410,12 +435,12 @@
   <main class="page">
     <section class="card">
       <div class="hero">
-        <div class="tag">文生视频接口连通性测试页</div>
-        <h1>从点击开始，<br>精确记录到视频返回</h1>
+        <div class="tag">文生视频生成测试台</div>
+        <h1>从 Prompt 开始，<br>跑完整条视频链路</h1>
         <p class="subtitle">
           这个页面直接请求你的 <strong>API Gateway</strong> 中转地址。
-          你可以在下方配置 Gateway 地址、API Key 和模型参数，页面会在你点击"开始生成"的瞬间启动计时，
-          并在成功拿到视频或请求失败时停止。同时支持连通性快速检测。
+          你可以在下方配置 Gateway 地址、API Key、模型参数和轮询策略。页面会提交文生视频任务，
+          自动识别同步视频返回或异步任务 ID，并持续轮询直到拿到可播放视频、失败或超时。
         </p>
       </div>
 
@@ -456,6 +481,31 @@
               <label for="endpoint">API Gateway 请求地址</label>
               <input id="endpoint" type="url" value="" placeholder="https://your-gateway.example.com/v1/videos/generations" required>
               <div class="inline-note">填写你的 API Gateway 中转地址，例如 <code>https://router.yourcompany.cn/v1/videos/generations</code></div>
+            </div>
+
+            <div class="field">
+              <label for="responseMode">返回模式</label>
+              <select id="responseMode">
+                <option value="auto" selected>自动识别</option>
+                <option value="sync">同步返回视频</option>
+                <option value="async">异步任务轮询</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="pollInterval">轮询间隔（秒）</label>
+              <input id="pollInterval" type="number" value="3" min="1" max="30">
+            </div>
+
+            <div class="field full">
+              <label for="pollEndpoint">轮询地址模板（异步时可选）</label>
+              <input id="pollEndpoint" type="url" value="" placeholder="https://your-gateway.example.com/v1/videos/generations/{id}">
+              <div class="inline-note">如果创建任务返回 <code>poll_url/status_url/url</code>，会优先使用返回值；否则用这里的 <code>{id}</code> 替换任务 ID。</div>
+            </div>
+
+            <div class="field">
+              <label for="maxWait">最长等待（秒）</label>
+              <input id="maxWait" type="number" value="300" min="10" max="1800">
             </div>
 
             <div class="field full">
@@ -531,12 +581,19 @@
 
           <div class="actions">
             <button class="primary" id="submitBtn" type="submit">🎬 开始生成视频</button>
+            <button class="secondary" id="cancelBtn" type="button" disabled>停止等待</button>
             <button class="secondary" id="fillDemoBtn" type="button">填入示例</button>
             <button class="secondary" id="copyCurlBtn" type="button">复制 cURL</button>
           </div>
         </form>
 
         <div class="status" id="statusBox">等待请求。请先填写 API Gateway 地址并点击"检测连通性"确认连接正常。</div>
+        <div class="run-log" id="runLog">
+          <div class="log-row">
+            <span class="log-time">--</span>
+            <span>等待开始生成。</span>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -547,7 +604,7 @@
         <pre id="requestPreview">请填写参数后查看...</pre>
 
         <h2>原始返回</h2>
-        <p>接口返回的完整 JSON 数据将在此处展示。</p>
+        <p>创建任务和轮询任务的最新 JSON 数据将在此处展示。</p>
         <pre id="responsePreview">暂无返回。</pre>
 
         <h2>结果视频</h2>
@@ -559,28 +616,33 @@
   </main>
 
   <script>
-    // ========== DOM References ==========
     const form = document.getElementById("videoForm");
     const submitBtn = document.getElementById("submitBtn");
+    const cancelBtn = document.getElementById("cancelBtn");
     const fillDemoBtn = document.getElementById("fillDemoBtn");
     const copyCurlBtn = document.getElementById("copyCurlBtn");
-    const testConnectBtn = document.getElementById("testConnectBtn");
     const statusBox = document.getElementById("statusBox");
     const requestPreview = document.getElementById("requestPreview");
     const responsePreview = document.getElementById("responsePreview");
     const gallery = document.getElementById("gallery");
+    const runLog = document.getElementById("runLog");
     const liveTimer = document.getElementById("liveTimer");
     const resultChip = document.getElementById("resultChip");
     const finalTimeNote = document.getElementById("finalTimeNote");
     const gwStatus = document.getElementById("gwStatus");
     const corsStatus = document.getElementById("corsStatus");
 
-    // ========== Timer ==========
     let timerId = null;
     let requestStartedAt = 0;
+    let activeController = null;
+    let cancelled = false;
 
     function formatDuration(ms) {
       return `${(ms / 1000).toFixed(3)} s`;
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => window.setTimeout(resolve, ms));
     }
 
     function setStatus(message) {
@@ -623,7 +685,26 @@
       return 0;
     }
 
-    // ========== Helpers ==========
+    function resetLog() {
+      runLog.innerHTML = "";
+    }
+
+    function addLog(message) {
+      const row = document.createElement("div");
+      row.className = "log-row";
+
+      const time = document.createElement("span");
+      time.className = "log-time";
+      time.textContent = requestStartedAt ? formatDuration(performance.now() - requestStartedAt) : "--";
+
+      const text = document.createElement("span");
+      text.textContent = message;
+
+      row.appendChild(time);
+      row.appendChild(text);
+      runLog.prepend(row);
+    }
+
     function safeParseJson(text) {
       if (!text.trim()) {
         return {};
@@ -642,6 +723,10 @@
     function buildPayload() {
       const endpoint = getEndpoint();
       const apiKey = document.getElementById("apiKey").value.trim();
+      const responseMode = document.getElementById("responseMode").value;
+      const pollEndpoint = document.getElementById("pollEndpoint").value.trim();
+      const pollInterval = Number(document.getElementById("pollInterval").value || 3);
+      const maxWait = Number(document.getElementById("maxWait").value || 300);
       const model = document.getElementById("model").value.trim();
       const prompt = document.getElementById("prompt").value.trim();
       const negativePrompt = document.getElementById("negativePrompt").value.trim();
@@ -674,10 +759,19 @@
         ...extraJson
       };
 
-      return { endpoint, apiKey, payload };
+      return { endpoint, apiKey, responseMode, pollEndpoint, pollInterval, maxWait, payload };
     }
 
-    function renderRequestPreview(endpoint, payload, apiKey) {
+    function authHeaders(apiKey) {
+      const headers = { "Content-Type": "application/json" };
+      if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
+      return headers;
+    }
+
+    function renderRequestPreview(config) {
+      const { endpoint, payload, apiKey, responseMode, pollEndpoint, pollInterval, maxWait } = config;
       requestPreview.textContent = JSON.stringify({
         url: endpoint,
         method: "POST",
@@ -687,7 +781,149 @@
           "Content-Type": "application/json",
           "Authorization": `Bearer ${apiKey ? apiKey.slice(0, 10) + "..." : ""}`
         },
-        body: payload
+        body: payload,
+        video_test: {
+          response_mode: responseMode,
+          poll_endpoint_template: pollEndpoint || null,
+          poll_interval_seconds: pollInterval,
+          max_wait_seconds: maxWait
+        }
+      }, null, 2);
+    }
+
+    function getByPath(source, path) {
+      return path.split(".").reduce((current, part) => {
+        if (current == null) {
+          return undefined;
+        }
+        return current[part];
+      }, source);
+    }
+
+    function asArray(value) {
+      if (!value) {
+        return [];
+      }
+      return Array.isArray(value) ? value : [value];
+    }
+
+    function looksLikeVideoUrl(value) {
+      return typeof value === "string" && (
+        /^https?:\/\//i.test(value) ||
+        /^data:video\//i.test(value) ||
+        /\.(mp4|webm|mov|m3u8)(\?|#|$)/i.test(value)
+      );
+    }
+
+    function normalizeVideoItem(item, fallbackPrompt) {
+      if (typeof item === "string") {
+        return looksLikeVideoUrl(item) ? { url: item, prompt: fallbackPrompt } : null;
+      }
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+
+      const b64 = item.b64_video || item.video_base64 || item.base64 || item.content;
+      const url = item.url || item.video_url || item.videoUrl || item.output_url || item.download_url ||
+        item.file_url || item.signed_url || item.uri || item.src;
+
+      if (url) {
+        return { url, prompt: item.prompt || fallbackPrompt };
+      }
+      if (b64) {
+        const mime = item.mime_type || item.mime || "video/mp4";
+        return { url: `data:${mime};base64,${b64}`, prompt: item.prompt || fallbackPrompt };
+      }
+      if (item.video) {
+        return normalizeVideoItem(item.video, item.prompt || fallbackPrompt);
+      }
+      return null;
+    }
+
+    function extractVideos(data, fallbackPrompt) {
+      const paths = [
+        "data",
+        "data.videos",
+        "data.video",
+        "data.output",
+        "data.outputs",
+        "data.result",
+        "output",
+        "outputs",
+        "result",
+        "results",
+        "videos",
+        "video",
+        "artifacts"
+      ];
+
+      const videos = [];
+      paths.forEach((path) => {
+        asArray(getByPath(data, path)).forEach((item) => {
+          const normalized = normalizeVideoItem(item, fallbackPrompt);
+          if (normalized) {
+            videos.push(normalized);
+          }
+        });
+      });
+
+      Object.values(data || {}).forEach((value) => {
+        if (looksLikeVideoUrl(value)) {
+          videos.push({ url: value, prompt: fallbackPrompt });
+        }
+      });
+
+      return Array.from(new Map(videos.map((item) => [item.url, item])).values());
+    }
+
+    function extractStatus(data) {
+      const raw = data?.status || data?.state || data?.task_status || data?.data?.status ||
+        data?.data?.state || data?.output?.status || "";
+      return String(raw).toLowerCase();
+    }
+
+    function isDoneStatus(status) {
+      return ["succeeded", "success", "completed", "complete", "done", "finished", "generated"].includes(status);
+    }
+
+    function isFailedStatus(status) {
+      return ["failed", "error", "cancelled", "canceled", "timeout", "rejected"].includes(status);
+    }
+
+    function extractTaskId(data) {
+      return data?.id || data?.task_id || data?.taskId || data?.job_id || data?.jobId ||
+        data?.generation_id || data?.generationId || data?.data?.id || data?.data?.task_id ||
+        data?.data?.taskId || data?.data?.job_id || data?.data?.generation_id;
+    }
+
+    function extractPollUrl(data) {
+      return data?.poll_url || data?.status_url || data?.statusUrl || data?.get_url ||
+        data?.data?.poll_url || data?.data?.status_url || data?.data?.statusUrl || data?.data?.url;
+    }
+
+    function buildPollUrl(config, createData) {
+      const returnedUrl = extractPollUrl(createData);
+      if (returnedUrl && /^https?:\/\//i.test(returnedUrl)) {
+        return returnedUrl;
+      }
+
+      const taskId = extractTaskId(createData);
+      if (!taskId) {
+        return "";
+      }
+      if (config.pollEndpoint) {
+        return config.pollEndpoint.replaceAll("{id}", encodeURIComponent(taskId));
+      }
+
+      const trimmed = config.endpoint.replace(/\/$/, "");
+      return `${trimmed}/${encodeURIComponent(taskId)}`;
+    }
+
+    function updateResponsePreview(label, data) {
+      responsePreview.textContent = JSON.stringify({
+        stage: label,
+        received_at: new Date().toISOString(),
+        response: data
       }, null, 2);
     }
 
@@ -695,11 +931,12 @@
       gallery.innerHTML = "";
 
       if (!Array.isArray(items) || items.length === 0) {
+        gallery.innerHTML = '<div style="color: var(--muted); font-size: 13px; padding: 20px; text-align: center; grid-column: 1 / -1;">接口已响应，但没有识别到视频 URL 或 base64 视频。</div>';
         return;
       }
 
       items.forEach((item, index) => {
-        const src = item.url || item.video_url || (item.b64_video ? `data:video/mp4;base64,${item.b64_video}` : "");
+        const src = item.url;
         if (!src) {
           return;
         }
@@ -726,7 +963,6 @@
       });
     }
 
-    // ========== Connectivity Test ==========
     async function testConnectivity() {
       let endpoint;
       try {
@@ -797,7 +1033,6 @@
       }
     }
 
-    // ========== Copy cURL ==========
     async function copyCurl() {
       try {
         const { endpoint, apiKey, payload } = buildPayload();
@@ -815,66 +1050,154 @@
       }
     }
 
-    // ========== Form Submit ==========
+    async function readJsonResponse(response) {
+      const rawText = await response.text();
+      try {
+        return rawText ? JSON.parse(rawText) : {};
+      } catch {
+        return { raw: rawText };
+      }
+    }
+
+    async function createVideoTask(config) {
+      addLog("提交文生视频请求。");
+      const response = await fetch(config.endpoint, {
+        method: "POST",
+        mode: "cors",
+        credentials: "omit",
+        headers: authHeaders(config.apiKey),
+        body: JSON.stringify(config.payload),
+        signal: activeController.signal
+      });
+
+      const data = await readJsonResponse(response);
+      updateResponsePreview("create", data);
+
+      if (!response.ok) {
+        const message = data.error?.message || data.message || `服务端返回 ${response.status}`;
+        throw new Error(`创建任务失败，HTTP ${response.status}: ${message}`);
+      }
+
+      return data;
+    }
+
+    async function pollUntilVideo(config, createData) {
+      const pollUrl = buildPollUrl(config, createData);
+      if (!pollUrl) {
+        throw new Error("创建任务成功，但没有找到视频结果、任务 ID 或轮询地址。请在“轮询地址模板”里填写包含 {id} 的查询地址。");
+      }
+
+      const started = performance.now();
+      const maxWaitMs = config.maxWait * 1000;
+      const intervalMs = config.pollInterval * 1000;
+      addLog(`进入轮询：${pollUrl}`);
+
+      while (performance.now() - started < maxWaitMs) {
+        if (cancelled) {
+          throw new Error("已停止等待生成结果。");
+        }
+
+        await sleep(intervalMs);
+        addLog("查询任务状态。");
+
+        const response = await fetch(pollUrl, {
+          method: "GET",
+          mode: "cors",
+          credentials: "omit",
+          headers: authHeaders(config.apiKey),
+          signal: activeController.signal
+        });
+
+        const data = await readJsonResponse(response);
+        updateResponsePreview("poll", data);
+
+        if (!response.ok) {
+          const message = data.error?.message || data.message || `服务端返回 ${response.status}`;
+          throw new Error(`轮询失败，HTTP ${response.status}: ${message}`);
+        }
+
+        const videos = extractVideos(data, config.payload.prompt);
+        if (videos.length > 0) {
+          return { data, videos };
+        }
+
+        const status = extractStatus(data);
+        if (isFailedStatus(status)) {
+          const message = data.error?.message || data.message || data.data?.message || status;
+          throw new Error(`视频生成失败：${message}`);
+        }
+        if (status) {
+          addLog(`当前任务状态：${status}`);
+        }
+      }
+
+      throw new Error(`等待超过 ${config.maxWait} 秒，仍未拿到视频结果。`);
+    }
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       gallery.innerHTML = "";
 
-      let endpoint, apiKey, payload;
+      let config;
 
       try {
-        ({ endpoint, apiKey, payload } = buildPayload());
+        config = buildPayload();
       } catch (error) {
         setStatus(error.message);
         setResultChip("参数待完善", "bad");
         return;
       }
 
-      renderRequestPreview(endpoint, payload, apiKey);
+      cancelled = false;
+      activeController = new AbortController();
+      renderRequestPreview(config);
       responsePreview.textContent = "请求中...";
-      setStatus("请求已发出，正在等待视频生成结果...");
+      setStatus("正在提交文生视频任务...");
       submitBtn.disabled = true;
+      cancelBtn.disabled = false;
+      resetLog();
       startTimer();
+      addLog("开始计时。");
 
       try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          mode: "cors",
-          credentials: "omit",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`
-          },
-          body: JSON.stringify(payload)
-        });
+        const createData = await createVideoTask(config);
+        let videos = extractVideos(createData, config.payload.prompt);
+        let finalData = createData;
+        const status = extractStatus(createData);
 
-        const rawText = await response.text();
-        let data;
+        if (videos.length === 0 && config.responseMode !== "sync") {
+          if (isFailedStatus(status)) {
+            const message = createData.error?.message || createData.message || status;
+            throw new Error(`视频生成失败：${message}`);
+          }
 
-        try {
-          data = JSON.parse(rawText);
-        } catch {
-          data = { raw: rawText };
+          if (config.responseMode === "async" || extractTaskId(createData) || extractPollUrl(createData) || !isDoneStatus(status)) {
+            setStatus("任务已创建，正在轮询生成状态...");
+            setResultChip("生成中", "pending");
+            const result = await pollUntilVideo(config, createData);
+            finalData = result.data;
+            videos = result.videos;
+          }
         }
 
-        responsePreview.textContent = JSON.stringify(data, null, 2);
         const elapsed = stopTimer(true);
+        updateResponsePreview("final", finalData);
+        renderGallery(videos);
 
-        if (!response.ok) {
-          const message = data.error?.message || data.message || `服务端返回 ${response.status}`;
-          setResultChip(`请求失败 · HTTP ${response.status}`, "bad");
-          throw new Error(`HTTP ${response.status}: ${message}。耗时 ${formatDuration(elapsed)}`);
+        if (videos.length > 0) {
+          setResultChip("视频已生成", "good");
+          setStatus(`文生视频成功！已识别到 ${videos.length} 个视频结果。总耗时 ${formatDuration(elapsed)}。`);
+          addLog(`完成，拿到 ${videos.length} 个视频。`);
+        } else {
+          setResultChip("未找到视频", "bad");
+          setStatus(`接口已成功响应，但页面没有识别到视频字段。请查看右侧原始返回，并把视频 URL 字段名加入 Gateway 返回。总耗时 ${formatDuration(elapsed)}。`);
+          addLog("接口成功响应，但未识别到视频字段。");
         }
-
-        // 尝试渲染视频结果
-        renderGallery(data.data || []);
-        setResultChip("请求成功", "good");
-        setStatus(`请求成功！已返回 ${Array.isArray(data.data) ? data.data.length : 0} 个视频结果。总耗时 ${formatDuration(elapsed)}。`);
       } catch (error) {
         const elapsed = stopTimer(true);
         const errorName = error instanceof Error ? error.name : "UnknownError";
         const errorMessage = error instanceof Error ? error.message : String(error);
-        const isNetworkError = error instanceof TypeError && /fetch/i.test(error.message);
+        const isNetworkError = error instanceof TypeError && /fetch/i.test(errorMessage);
 
         if (isNetworkError) {
           setResultChip("网络错误", "bad");
@@ -887,18 +1210,25 @@
             hint: "如果服务端确认已成功生成视频，但这里仍是 Failed to fetch，优先检查成功响应的 Access-Control-Allow-Origin 是否存在。file:// 页面发起请求时，浏览器通常会带 Origin: null。"
           }, null, 2);
         } else {
-          if (!errorMessage.includes("耗时")) {
-            setStatus(`${errorMessage}。总耗时 ${formatDuration(elapsed)}。`);
-          } else {
-            setStatus(errorMessage);
-          }
+          setResultChip(cancelled ? "已停止" : "生成失败", "bad");
+          setStatus(`${errorMessage}。总耗时 ${formatDuration(elapsed)}。`);
         }
+        addLog(`${errorName}: ${errorMessage}`);
       } finally {
         submitBtn.disabled = false;
+        cancelBtn.disabled = true;
+        activeController = null;
       }
     });
 
-    // ========== Demo Fill ==========
+    cancelBtn.addEventListener("click", () => {
+      cancelled = true;
+      if (activeController) {
+        activeController.abort();
+      }
+      addLog("用户停止等待。");
+    });
+
     fillDemoBtn.addEventListener("click", () => {
       document.getElementById("prompt").value = "一只金色的猫咪在清晨的阳光中打滚，毛发蓬松柔软，背景是温馨的客厅，电影感光影，4K画质";
       document.getElementById("negativePrompt").value = "模糊、低分辨率、变形、水印、文字";
@@ -907,8 +1237,7 @@
         guidance_scale: 7.5
       }, null, 2);
       try {
-        const { endpoint, apiKey, payload } = buildPayload();
-        renderRequestPreview(endpoint, payload, apiKey);
+        renderRequestPreview(buildPayload());
         setStatus("示例内容已填入，可以直接开始生成。");
       } catch (error) {
         setStatus(error.message);
@@ -917,11 +1246,17 @@
 
     copyCurlBtn.addEventListener("click", copyCurl);
 
-    // ========== Initial Preview ==========
     (function initPreview() {
       try {
         const ep = document.getElementById("endpoint").value.trim() || "https://your-gateway.example.com/v1/videos/generations";
-        renderRequestPreview(ep, {
+        renderRequestPreview({
+          endpoint: ep,
+          apiKey: "",
+          responseMode: "auto",
+          pollEndpoint: "",
+          pollInterval: 3,
+          maxWait: 300,
+          payload: {
           model: "",
           prompt: "",
           duration: 5,
@@ -929,7 +1264,8 @@
           height: 576,
           fps: 24,
           n: 1
-        }, "");
+          }
+        });
       } catch (e) {
         // ignore
       }
