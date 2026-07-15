@@ -475,7 +475,7 @@
           </div>
         </div>
 
-        <form id="videoForm">
+        <form id="videoForm" novalidate>
           <div class="grid">
             <div class="field full">
               <label for="endpoint">API Gateway 请求地址</label>
@@ -499,7 +499,7 @@
 
             <div class="field full">
               <label for="pollEndpoint">轮询地址模板（异步时可选）</label>
-              <input id="pollEndpoint" type="url" value="" placeholder="https://your-gateway.example.com/v1/videos/generations/{id}">
+              <input id="pollEndpoint" type="text" value="" placeholder="https://your-gateway.example.com/v1/videos/generations/{id}">
               <div class="inline-note">如果创建任务返回 <code>poll_url/status_url/url</code>，会优先使用返回值；否则用这里的 <code>{id}</code> 替换任务 ID。</div>
             </div>
 
@@ -635,6 +635,7 @@
     let timerId = null;
     let requestStartedAt = 0;
     let activeController = null;
+    let overallTimeoutId = null;
     let cancelled = false;
 
     function formatDuration(ms) {
@@ -705,6 +706,50 @@
       runLog.prepend(row);
     }
 
+    function isHttpUrl(value) {
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }
+
+    function validateConfigFields() {
+      const endpoint = document.getElementById("endpoint").value.trim();
+      const apiKey = document.getElementById("apiKey").value.trim();
+      const model = document.getElementById("model").value.trim();
+      const prompt = document.getElementById("prompt").value.trim();
+      const pollEndpoint = document.getElementById("pollEndpoint").value.trim();
+      const extraJson = document.getElementById("extraJson").value;
+      const errors = [];
+
+      if (!endpoint) {
+        errors.push("请先填写 API Gateway 请求地址。");
+      } else if (!isHttpUrl(endpoint)) {
+        errors.push("API Gateway 请求地址必须是 http 或 https URL。");
+      }
+      if (!apiKey) {
+        errors.push("请先填写 API Key。");
+      }
+      if (!model) {
+        errors.push("请先填写模型名。");
+      }
+      if (!prompt) {
+        errors.push("请先填写提示词。");
+      }
+      if (pollEndpoint && !pollEndpoint.includes("{id}") && !isHttpUrl(pollEndpoint)) {
+        errors.push("轮询地址模板必须是 URL，或者包含 {id} 占位符。");
+      }
+      try {
+        safeParseJson(extraJson);
+      } catch (error) {
+        errors.push(`附加参数 JSON 格式错误：${error.message}`);
+      }
+
+      return errors;
+    }
+
     function safeParseJson(text) {
       if (!text.trim()) {
         return {};
@@ -716,6 +761,9 @@
       const endpoint = document.getElementById("endpoint").value.trim();
       if (!endpoint) {
         throw new Error("请先填写 API Gateway 请求地址。");
+      }
+      if (!isHttpUrl(endpoint)) {
+        throw new Error("API Gateway 请求地址必须是 http 或 https URL。");
       }
       return endpoint;
     }
@@ -840,6 +888,50 @@
       return null;
     }
 
+    function isLikelyNonVideoUrl(key, value) {
+      const lowerKey = String(key || "").toLowerCase();
+      const lowerValue = String(value || "").toLowerCase();
+      if (/\.(mp4|webm|mov|m3u8)(\?|#|$)/i.test(value)) {
+        return false;
+      }
+      if (/video|output|download|file|signed|artifact|media|result|url/.test(lowerKey) && !/status|poll|task|job/.test(lowerKey)) {
+        return false;
+      }
+      return /status|poll|task|job|generation/.test(lowerKey) || /\/status\/|\/tasks?\//.test(lowerValue);
+    }
+
+    function scanVideosDeep(value, fallbackPrompt, videos, seen = new Set(), key = "") {
+      if (value == null || seen.has(value)) {
+        return;
+      }
+
+      if (typeof value === "string") {
+        if (looksLikeVideoUrl(value) && !isLikelyNonVideoUrl(key, value)) {
+          videos.push({ url: value, prompt: fallbackPrompt });
+        }
+        return;
+      }
+
+      if (typeof value !== "object") {
+        return;
+      }
+
+      seen.add(value);
+      const normalized = normalizeVideoItem(value, fallbackPrompt);
+      if (normalized && !isLikelyNonVideoUrl(key, normalized.url)) {
+        videos.push(normalized);
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach((item) => scanVideosDeep(item, fallbackPrompt, videos, seen, key));
+        return;
+      }
+
+      Object.entries(value).forEach(([childKey, childValue]) => {
+        scanVideosDeep(childValue, fallbackPrompt, videos, seen, childKey);
+      });
+    }
+
     function extractVideos(data, fallbackPrompt) {
       const paths = [
         "data",
@@ -867,11 +959,13 @@
         });
       });
 
-      Object.values(data || {}).forEach((value) => {
-        if (looksLikeVideoUrl(value)) {
+      Object.entries(data || {}).forEach(([key, value]) => {
+        if (looksLikeVideoUrl(value) && !isLikelyNonVideoUrl(key, value)) {
           videos.push({ url: value, prompt: fallbackPrompt });
         }
       });
+
+      scanVideosDeep(data, fallbackPrompt, videos);
 
       return Array.from(new Map(videos.map((item) => [item.url, item])).values());
     }
@@ -1072,6 +1166,7 @@
 
       const data = await readJsonResponse(response);
       updateResponsePreview("create", data);
+      addLog(`创建请求返回 HTTP ${response.status}。`);
 
       if (!response.ok) {
         const message = data.error?.message || data.message || `服务端返回 ${response.status}`;
@@ -1110,6 +1205,7 @@
 
         const data = await readJsonResponse(response);
         updateResponsePreview("poll", data);
+        addLog(`轮询请求返回 HTTP ${response.status}。`);
 
         if (!response.ok) {
           const message = data.error?.message || data.message || `服务端返回 ${response.status}`;
@@ -1139,6 +1235,14 @@
       gallery.innerHTML = "";
 
       let config;
+      const validationErrors = validateConfigFields();
+
+      if (validationErrors.length > 0) {
+        setStatus(validationErrors.join("<br>"));
+        setResultChip("参数待完善", "bad");
+        responsePreview.textContent = JSON.stringify({ validation_errors: validationErrors }, null, 2);
+        return;
+      }
 
       try {
         config = buildPayload();
@@ -1150,6 +1254,11 @@
 
       cancelled = false;
       activeController = new AbortController();
+      overallTimeoutId = window.setTimeout(() => {
+        if (activeController) {
+          activeController.abort();
+        }
+      }, config.maxWait * 1000);
       renderRequestPreview(config);
       responsePreview.textContent = "请求中...";
       setStatus("正在提交文生视频任务...");
@@ -1199,7 +1308,16 @@
         const errorMessage = error instanceof Error ? error.message : String(error);
         const isNetworkError = error instanceof TypeError && /fetch/i.test(errorMessage);
 
-        if (isNetworkError) {
+        if (errorName === "AbortError") {
+          setResultChip(cancelled ? "已停止" : "请求超时", "bad");
+          setStatus(`${cancelled ? "已停止等待生成结果" : `等待超过 ${config.maxWait} 秒，浏览器已终止请求`}。当前耗时 ${formatDuration(elapsed)}。`);
+          responsePreview.textContent = JSON.stringify({
+            error_name: errorName,
+            cancelled,
+            max_wait_seconds: config.maxWait,
+            hint: "如果后端是同步生成，请把“最长等待”调大；如果后端是异步生成，请确认创建任务会返回 task_id/id/job_id 或 poll_url/status_url。"
+          }, null, 2);
+        } else if (isNetworkError) {
           setResultChip("网络错误", "bad");
           setStatus(`浏览器未拿到有效响应。当前耗时 ${formatDuration(elapsed)}。<br>捕获到的错误是 ${errorName}: ${errorMessage}<br><br>如果后端已经成功处理请求，这通常说明响应在浏览器侧被拦截了，最常见是成功响应缺少可供浏览器读取的 CORS 头，或者 <code>file://</code> 页面来源被目标站拒绝。<br><br><strong>建议：</strong>检查 Gateway 的成功响应是否包含正确的 <code>Access-Control-Allow-Origin</code> 头。`);
           responsePreview.textContent = JSON.stringify({
@@ -1215,6 +1333,10 @@
         }
         addLog(`${errorName}: ${errorMessage}`);
       } finally {
+        if (overallTimeoutId !== null) {
+          window.clearTimeout(overallTimeoutId);
+          overallTimeoutId = null;
+        }
         submitBtn.disabled = false;
         cancelBtn.disabled = true;
         activeController = null;
