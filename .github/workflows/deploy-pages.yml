@@ -1,0 +1,61 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build Pages files
+        run: |
+          rm -rf public
+          mkdir -p public
+          cp video-connectivity-test.html public/index.html
+          cp video-connectivity-test.html public/video-connectivity-test.html
+          touch public/.nojekyll
+
+      - name: Publish gh-pages branch
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin gh-pages || true
+          rm -rf /tmp/gh-pages
+
+          if git show-ref --verify --quiet refs/remotes/origin/gh-pages; then
+            git worktree add /tmp/gh-pages origin/gh-pages
+          else
+            git worktree add --detach /tmp/gh-pages
+          fi
+
+          find /tmp/gh-pages -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R public/. /tmp/gh-pages/
+
+          cd /tmp/gh-pages
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "Pages content is already up to date."
+            exit 0
+          fi
+
+          git commit -m "deploy: update GitHub Pages"
+          git push origin HEAD:gh-pages
