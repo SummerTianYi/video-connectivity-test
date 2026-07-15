@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>文生视频生成测试台</title>
+  <title>图生视频连通性测试台</title>
   <style>
     :root {
       --bg-a: #f8f2e8;
@@ -435,12 +435,12 @@
   <main class="page">
     <section class="card">
       <div class="hero">
-        <div class="tag">文生视频生成测试台</div>
-        <h1>从 Prompt 开始，<br>跑完整条视频链路</h1>
+        <div class="tag">图生视频连通性测试台</div>
+        <h1>从一张图片开始，<br>跑完整条视频链路</h1>
         <p class="subtitle">
           这个页面直接请求你的 <strong>API Gateway</strong> 中转地址。
-          你可以在下方配置 Gateway 地址、API Key、模型参数和轮询策略。页面会提交文生视频任务，
-          自动识别同步视频返回或异步任务 ID，并持续轮询直到拿到可播放视频、失败或超时。
+          你可以在下方配置 Gateway 地址、API Key、图片 URL 和模型参数。页面会按网关的
+          <code>/v1/videos/generations</code> 协议提交图生视频任务，并轮询 <code>/v1/videos/{task_id}</code> 直到拿到可播放视频、失败或超时。
         </p>
       </div>
 
@@ -458,7 +458,7 @@
             </div>
           </div>
           <div style="margin-top: 14px; display: flex; gap: 10px;">
-            <button class="secondary" id="testConnectBtn" type="button" onclick="testConnectivity()">检测连通性</button>
+            <button class="secondary" id="testConnectBtn" type="button" onclick="testConnectivity()">检测预检连通性</button>
           </div>
         </div>
 
@@ -498,9 +498,9 @@
             </div>
 
             <div class="field full">
-              <label for="pollEndpoint">轮询地址模板（异步时可选）</label>
-              <input id="pollEndpoint" type="text" value="" placeholder="https://your-gateway.example.com/v1/videos/generations/{id}">
-              <div class="inline-note">如果创建任务返回 <code>poll_url/status_url/url</code>，会优先使用返回值；否则用这里的 <code>{id}</code> 替换任务 ID。</div>
+              <label for="pollEndpoint">轮询地址模板（可选）</label>
+              <input id="pollEndpoint" type="text" value="" placeholder="https://your-gateway.example.com/v1/videos/{id}">
+              <div class="inline-note">默认会从创建地址推导为 <code>/v1/videos/{id}</code>。只有网关使用非标准查询路径时才需要填写。</div>
             </div>
 
             <div class="field">
@@ -515,7 +515,7 @@
 
             <div class="field">
               <label for="model">模型名</label>
-              <input id="model" type="text" placeholder="例如：agnes-video-v2 或 wanx2.1-t2v-turbo" required>
+              <input id="model" type="text" value="doubao-seedance-2.0" placeholder="例如：doubao-seedance-2.0" required>
             </div>
 
             <div class="field">
@@ -530,46 +530,45 @@
             </div>
 
             <div class="field">
-              <label for="width">宽度（px）</label>
-              <select id="width">
-                <option value="720">720</option>
-                <option value="1024" selected>1024</option>
-                <option value="1280">1280</option>
+              <label for="resolution">分辨率</label>
+              <select id="resolution">
+                <option value="480p">480p</option>
+                <option value="720p" selected>720p</option>
+                <option value="1080p">1080p</option>
+                <option value="4k">4k</option>
               </select>
             </div>
 
             <div class="field">
-              <label for="height">高度（px）</label>
-              <select id="height">
-                <option value="480">480</option>
-                <option value="576" selected>576</option>
-                <option value="768">768</option>
+              <label for="size">画面比例</label>
+              <select id="size">
+                <option value="16:9" selected>16:9（横屏）</option>
+                <option value="9:16">9:16（竖屏）</option>
+                <option value="1:1">1:1（方形）</option>
+                <option value="4:3">4:3</option>
+                <option value="3:4">3:4</option>
+                <option value="21:9">21:9（超宽）</option>
+                <option value="adaptive">adaptive（自适应）</option>
               </select>
             </div>
 
             <div class="field">
-              <label for="fps">帧率（fps）</label>
-              <select id="fps">
-                <option value="12">12</option>
-                <option value="16">16</option>
-                <option value="24" selected>24</option>
-                <option value="30">30</option>
+              <label for="generateAudio">生成音频</label>
+              <select id="generateAudio">
+                <option value="true" selected>是</option>
+                <option value="false">否</option>
               </select>
             </div>
 
-            <div class="field">
-              <label for="count">生成数量</label>
-              <input id="count" type="number" value="1" min="1" max="4">
+            <div class="field full">
+              <label for="imageUrl">首帧图片 URL</label>
+              <input id="imageUrl" type="url" placeholder="https://cdn.example.com/your-image.jpg" required>
+              <div class="inline-note">网关要求可由服务端访问的公网图片 URL；本地文件或浏览器临时 URL 不能直接作为 <code>image_urls</code> 提交。</div>
             </div>
 
             <div class="field full">
               <label for="prompt">提示词（Prompt）</label>
               <textarea id="prompt" placeholder="例如：一只金色的猫咪在清晨的阳光中打滚，毛发蓬松柔软，背景是温馨的客厅，电影感光影，4K画质" required></textarea>
-            </div>
-
-            <div class="field full">
-              <label for="negativePrompt">反向提示词（可选）</label>
-              <textarea id="negativePrompt" placeholder="例如：模糊、低分辨率、变形、水印、文字" style="min-height: 70px;"></textarea>
             </div>
 
             <div class="field full">
@@ -720,6 +719,7 @@
       const apiKey = document.getElementById("apiKey").value.trim();
       const model = document.getElementById("model").value.trim();
       const prompt = document.getElementById("prompt").value.trim();
+      const imageUrl = document.getElementById("imageUrl").value.trim();
       const pollEndpoint = document.getElementById("pollEndpoint").value.trim();
       const extraJson = document.getElementById("extraJson").value;
       const errors = [];
@@ -737,6 +737,11 @@
       }
       if (!prompt) {
         errors.push("请先填写提示词。");
+      }
+      if (!imageUrl) {
+        errors.push("请先填写首帧图片 URL。");
+      } else if (!isHttpUrl(imageUrl)) {
+        errors.push("首帧图片必须是 http 或 https 的公网 URL。");
       }
       if (pollEndpoint && !pollEndpoint.includes("{id}") && !isHttpUrl(pollEndpoint)) {
         errors.push("轮询地址模板必须是 URL，或者包含 {id} 占位符。");
@@ -777,12 +782,11 @@
       const maxWait = Number(document.getElementById("maxWait").value || 300);
       const model = document.getElementById("model").value.trim();
       const prompt = document.getElementById("prompt").value.trim();
-      const negativePrompt = document.getElementById("negativePrompt").value.trim();
       const duration = Number(document.getElementById("duration").value);
-      const width = Number(document.getElementById("width").value);
-      const height = Number(document.getElementById("height").value);
-      const fps = Number(document.getElementById("fps").value);
-      const count = Number(document.getElementById("count").value || 1);
+      const resolution = document.getElementById("resolution").value;
+      const size = document.getElementById("size").value;
+      const generateAudio = document.getElementById("generateAudio").value === "true";
+      const imageUrl = document.getElementById("imageUrl").value.trim();
       const extraJson = safeParseJson(document.getElementById("extraJson").value);
 
       if (!apiKey) {
@@ -794,16 +798,18 @@
       if (!prompt) {
         throw new Error("请先填写提示词。");
       }
+      if (!imageUrl || !isHttpUrl(imageUrl)) {
+        throw new Error("请填写可公开访问的首帧图片 URL。");
+      }
 
       const payload = {
         model,
         prompt,
         duration,
-        width,
-        height,
-        fps,
-        n: count,
-        ...(negativePrompt ? { negative_prompt: negativePrompt } : {}),
+        resolution,
+        size,
+        generate_audio: generateAudio,
+        image_urls: [imageUrl],
         ...extraJson
       };
 
@@ -971,8 +977,9 @@
     }
 
     function extractStatus(data) {
-      const raw = data?.status || data?.state || data?.task_status || data?.data?.status ||
-        data?.data?.state || data?.output?.status || "";
+      const firstTask = Array.isArray(data?.data) ? data.data[0] : null;
+      const raw = data?.status || data?.state || data?.task_status || firstTask?.status ||
+        data?.data?.status || data?.data?.state || data?.output?.status || "";
       return String(raw).toLowerCase();
     }
 
@@ -985,13 +992,17 @@
     }
 
     function extractTaskId(data) {
+      const firstTask = Array.isArray(data?.data) ? data.data[0] : null;
       return data?.id || data?.task_id || data?.taskId || data?.job_id || data?.jobId ||
+        firstTask?.id || firstTask?.task_id || firstTask?.taskId || firstTask?.job_id || firstTask?.jobId ||
         data?.generation_id || data?.generationId || data?.data?.id || data?.data?.task_id ||
         data?.data?.taskId || data?.data?.job_id || data?.data?.generation_id;
     }
 
     function extractPollUrl(data) {
+      const firstTask = Array.isArray(data?.data) ? data.data[0] : null;
       return data?.poll_url || data?.status_url || data?.statusUrl || data?.get_url ||
+        firstTask?.poll_url || firstTask?.status_url || firstTask?.statusUrl || firstTask?.get_url ||
         data?.data?.poll_url || data?.data?.status_url || data?.data?.statusUrl || data?.data?.url;
     }
 
@@ -1010,7 +1021,10 @@
       }
 
       const trimmed = config.endpoint.replace(/\/$/, "");
-      return `${trimmed}/${encodeURIComponent(taskId)}`;
+      const generationPath = /\/v1\/videos\/generations$/;
+      return generationPath.test(trimmed)
+        ? trimmed.replace(generationPath, `/v1/videos/${encodeURIComponent(taskId)}`)
+        : `${trimmed}/${encodeURIComponent(taskId)}`;
     }
 
     function updateResponsePreview(label, data) {
@@ -1073,12 +1087,12 @@
       setStatus("正在检测 API Gateway 连通性...");
 
       try {
-        // 1. 尝试 HEAD 请求检测基本连通性
+        // 不提交生成任务，只检查浏览器能否完成跨域预检请求。
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 8000);
 
         const response = await fetch(endpoint, {
-          method: "HEAD",
+          method: "OPTIONS",
           mode: "cors",
           credentials: "omit",
           signal: controller.signal
@@ -1086,19 +1100,18 @@
 
         clearTimeout(timeoutId);
 
-        if (response.ok || response.status === 0) {
-          // status 0 可能是 CORS 预检，也算可达
+        if (response.status < 500) {
           gwStatus.textContent = "✅ 可达";
           gwStatus.className = "connect-status ok";
           corsStatus.textContent = "✅ 支持";
           corsStatus.className = "connect-status ok";
-          setStatus("连通性检测通过：API Gateway 可达，CORS 策略允许跨域请求。");
+          setStatus("预检连通性通过：浏览器可访问 Gateway 并读取响应。实际生成仍会校验 API Key、余额与模型权限。");
         } else {
           gwStatus.textContent = `⚠️ ${response.status}`;
           gwStatus.className = "connect-status fail";
           corsStatus.textContent = "需进一步验证";
           corsStatus.className = "connect-status waiting";
-          setStatus(`Gateway 返回 HTTP ${response.status}。地址可达但可能需要进一步排查。`);
+          setStatus(`Gateway 返回 HTTP ${response.status}。地址可达，但预检没有通过；请检查 Gateway 的 CORS 配置。`);
         }
       } catch (error) {
         const errorName = error instanceof Error ? error.name : "UnknownError";
@@ -1154,7 +1167,7 @@
     }
 
     async function createVideoTask(config) {
-      addLog("提交文生视频请求。");
+      addLog("提交图生视频请求。");
       const response = await fetch(config.endpoint, {
         method: "POST",
         mode: "cors",
@@ -1261,7 +1274,7 @@
       }, config.maxWait * 1000);
       renderRequestPreview(config);
       responsePreview.textContent = "请求中...";
-      setStatus("正在提交文生视频任务...");
+      setStatus("正在提交图生视频任务...");
       submitBtn.disabled = true;
       cancelBtn.disabled = false;
       resetLog();
@@ -1295,7 +1308,7 @@
 
         if (videos.length > 0) {
           setResultChip("视频已生成", "good");
-          setStatus(`文生视频成功！已识别到 ${videos.length} 个视频结果。总耗时 ${formatDuration(elapsed)}。`);
+          setStatus(`图生视频成功！已识别到 ${videos.length} 个视频结果。总耗时 ${formatDuration(elapsed)}。`);
           addLog(`完成，拿到 ${videos.length} 个视频。`);
         } else {
           setResultChip("未找到视频", "bad");
@@ -1352,11 +1365,10 @@
     });
 
     fillDemoBtn.addEventListener("click", () => {
-      document.getElementById("prompt").value = "一只金色的猫咪在清晨的阳光中打滚，毛发蓬松柔软，背景是温馨的客厅，电影感光影，4K画质";
-      document.getElementById("negativePrompt").value = "模糊、低分辨率、变形、水印、文字";
+      document.getElementById("prompt").value = "让图片中的主体自然地向镜头走来，动作流畅，保留原有场景和光线，电影感运镜。";
+      document.getElementById("imageUrl").value = "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&w=1280&q=85";
       document.getElementById("extraJson").value = JSON.stringify({
-        seed: 42,
-        guidance_scale: 7.5
+        seed: 42
       }, null, 2);
       try {
         renderRequestPreview(buildPayload());
@@ -1379,13 +1391,13 @@
           pollInterval: 3,
           maxWait: 300,
           payload: {
-          model: "",
+          model: "doubao-seedance-2.0",
           prompt: "",
           duration: 5,
-          width: 1024,
-          height: 576,
-          fps: 24,
-          n: 1
+          resolution: "720p",
+          size: "16:9",
+          generate_audio: true,
+          image_urls: ["https://cdn.example.com/your-image.jpg"]
           }
         });
       } catch (e) {
