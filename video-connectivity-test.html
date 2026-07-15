@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>图生视频连通性测试台</title>
+  <title>文生视频连通性测试台</title>
   <style>
     :root {
       --bg-a: #f8f2e8;
@@ -435,12 +435,12 @@
   <main class="page">
     <section class="card">
       <div class="hero">
-        <div class="tag">图生视频连通性测试台</div>
-        <h1>从一张图片开始，<br>跑完整条视频链路</h1>
+        <div class="tag">文生视频连通性测试台</div>
+        <h1>从 Prompt 开始，<br>跑完整条视频链路</h1>
         <p class="subtitle">
           这个页面直接请求你的 <strong>API Gateway</strong> 中转地址。
-          你可以在下方配置 Gateway 地址、API Key、图片 URL 和模型参数。页面会按网关的
-          <code>/v1/videos/generations</code> 协议提交图生视频任务，并轮询 <code>/v1/videos/{task_id}</code> 直到拿到可播放视频、失败或超时。
+          你可以在下方配置 Gateway 地址、API Key 和模型参数。页面会按网关的
+          <code>/v1/videos/generations</code> 协议提交文生视频任务，并轮询 <code>/v1/videos/{task_id}</code> 直到拿到可播放视频、失败或超时。
         </p>
       </div>
 
@@ -558,12 +558,6 @@
                 <option value="true" selected>是</option>
                 <option value="false">否</option>
               </select>
-            </div>
-
-            <div class="field full">
-              <label for="imageUrl">首帧图片 URL</label>
-              <input id="imageUrl" type="url" placeholder="https://cdn.example.com/your-image.jpg" required>
-              <div class="inline-note">网关要求可由服务端访问的公网图片 URL；本地文件或浏览器临时 URL 不能直接作为 <code>image_urls</code> 提交。</div>
             </div>
 
             <div class="field full">
@@ -719,7 +713,6 @@
       const apiKey = document.getElementById("apiKey").value.trim();
       const model = document.getElementById("model").value.trim();
       const prompt = document.getElementById("prompt").value.trim();
-      const imageUrl = document.getElementById("imageUrl").value.trim();
       const pollEndpoint = document.getElementById("pollEndpoint").value.trim();
       const extraJson = document.getElementById("extraJson").value;
       const errors = [];
@@ -737,11 +730,6 @@
       }
       if (!prompt) {
         errors.push("请先填写提示词。");
-      }
-      if (!imageUrl) {
-        errors.push("请先填写首帧图片 URL。");
-      } else if (!isHttpUrl(imageUrl)) {
-        errors.push("首帧图片必须是 http 或 https 的公网 URL。");
       }
       if (pollEndpoint && !pollEndpoint.includes("{id}") && !isHttpUrl(pollEndpoint)) {
         errors.push("轮询地址模板必须是 URL，或者包含 {id} 占位符。");
@@ -786,7 +774,6 @@
       const resolution = document.getElementById("resolution").value;
       const size = document.getElementById("size").value;
       const generateAudio = document.getElementById("generateAudio").value === "true";
-      const imageUrl = document.getElementById("imageUrl").value.trim();
       const extraJson = safeParseJson(document.getElementById("extraJson").value);
 
       if (!apiKey) {
@@ -798,10 +785,6 @@
       if (!prompt) {
         throw new Error("请先填写提示词。");
       }
-      if (!imageUrl || !isHttpUrl(imageUrl)) {
-        throw new Error("请填写可公开访问的首帧图片 URL。");
-      }
-
       const payload = {
         model,
         prompt,
@@ -809,7 +792,6 @@
         resolution,
         size,
         generate_audio: generateAudio,
-        image_urls: [imageUrl],
         ...extraJson
       };
 
@@ -1167,7 +1149,7 @@
     }
 
     async function createVideoTask(config) {
-      addLog("提交图生视频请求。");
+      addLog("提交文生视频请求。");
       const response = await fetch(config.endpoint, {
         method: "POST",
         mode: "cors",
@@ -1274,7 +1256,7 @@
       }, config.maxWait * 1000);
       renderRequestPreview(config);
       responsePreview.textContent = "请求中...";
-      setStatus("正在提交图生视频任务...");
+      setStatus("正在提交文生视频任务...");
       submitBtn.disabled = true;
       cancelBtn.disabled = false;
       resetLog();
@@ -1308,7 +1290,7 @@
 
         if (videos.length > 0) {
           setResultChip("视频已生成", "good");
-          setStatus(`图生视频成功！已识别到 ${videos.length} 个视频结果。总耗时 ${formatDuration(elapsed)}。`);
+          setStatus(`文生视频成功！已识别到 ${videos.length} 个视频结果。总耗时 ${formatDuration(elapsed)}。`);
           addLog(`完成，拿到 ${videos.length} 个视频。`);
         } else {
           setResultChip("未找到视频", "bad");
@@ -1365,8 +1347,7 @@
     });
 
     fillDemoBtn.addEventListener("click", () => {
-      document.getElementById("prompt").value = "让图片中的主体自然地向镜头走来，动作流畅，保留原有场景和光线，电影感运镜。";
-      document.getElementById("imageUrl").value = "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?auto=format&fit=crop&w=1280&q=85";
+      document.getElementById("prompt").value = "一只金色的猫咪在清晨阳光中打滚，毛发蓬松柔软，背景是温馨的客厅，电影感光影。";
       document.getElementById("extraJson").value = JSON.stringify({
         seed: 42
       }, null, 2);
@@ -1396,8 +1377,7 @@
           duration: 5,
           resolution: "720p",
           size: "16:9",
-          generate_audio: true,
-          image_urls: ["https://cdn.example.com/your-image.jpg"]
+          generate_audio: true
           }
         });
       } catch (e) {
